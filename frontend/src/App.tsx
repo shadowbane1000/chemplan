@@ -495,6 +495,12 @@ function StepCard({
               src={`data:image/png;base64,${reaction.image_png_b64}`}
               alt={`Step ${index + 1} reaction`}
             />
+            <div className="step-rxn-zoom">
+              <img
+                src={`data:image/png;base64,${reaction.image_png_b64}`}
+                alt=""
+              />
+            </div>
           </div>
         )}
 
