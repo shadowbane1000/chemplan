@@ -1,0 +1,54 @@
+:root {
+  --sidepanel-width: 360px;
+  --bg: #0f1115;
+  --panel: #161922;
+  --text: #e7e9ee;
+  --muted: #8b91a0;
+  --border: #232734;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 1fr var(--sidepanel-width);
+  height: 100vh;
+  width: 100vw;
+}
+
+.canvas {
+  position: relative;
+  background: #fff;
+  overflow: hidden;
+}
+
+.sidepanel {
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidepanel header h2 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 13px;
+}
