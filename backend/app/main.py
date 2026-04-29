@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app import chat, retro
+from app import chat, procedure, retro
 
 app = FastAPI(title="chemplan", version="0.1.0")
 
@@ -41,6 +41,20 @@ def health() -> dict[str, str]:
 def plan(req: PlanRequest) -> dict:
     try:
         return retro.plan(req.smiles)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class ExpandStepRequest(BaseModel):
+    reaction_smiles: str = Field(..., min_length=1)
+    metadata: dict[str, Any] | None = None
+
+
+@app.post("/expand_step")
+def expand_step_endpoint(req: ExpandStepRequest) -> dict:
+    try:
+        result = procedure.expand_step(req.reaction_smiles, req.metadata)
+        return result.model_dump()
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 

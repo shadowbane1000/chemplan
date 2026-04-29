@@ -180,6 +180,239 @@ button.primary:disabled {
   font-size: 12px;
 }
 
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.step-card {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.step-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.step-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+.step-meta {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.step-rxn {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 6px;
+  align-items: center;
+  font-size: 11px;
+}
+.step-rxn-side code {
+  display: block;
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 6px;
+  word-break: break-all;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.step-rxn-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+.step-rxn-arrow {
+  color: var(--accent);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+button.secondary {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-weight: 500;
+  font-size: 13px;
+  cursor: pointer;
+}
+button.secondary:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.procedure {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.procedure-summary {
+  font-size: 13px;
+  font-style: italic;
+  color: var(--text);
+}
+
+.grounding {
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.grounding-llm_only {
+  background: rgba(255, 180, 60, 0.08);
+  border: 1px solid rgba(255, 180, 60, 0.4);
+  color: #ffc97a;
+}
+.grounding-ord,
+.grounding-patent_extracted {
+  background: rgba(110, 200, 130, 0.08);
+  border: 1px solid rgba(110, 200, 130, 0.4);
+  color: #9ce0a8;
+}
+.grounding-lab_tested {
+  background: rgba(80, 220, 200, 0.08);
+  border: 1px solid rgba(80, 220, 200, 0.4);
+  color: #8eecda;
+}
+.grounding-head {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.grounding-cost {
+  margin-left: auto;
+  opacity: 0.7;
+}
+.grounding-details {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.ops {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  counter-reset: op;
+}
+.op {
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  position: relative;
+  padding-left: 32px;
+  counter-increment: op;
+}
+.op::before {
+  content: counter(op);
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #0b1422;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.op-action {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  font-weight: 600;
+}
+.op-desc {
+  font-size: 13px;
+  margin-top: 2px;
+}
+.op-cond {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.op-cond span {
+  background: var(--panel);
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+.op-reagents {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0 0;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.reagent-role {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+  margin-right: 4px;
+}
+
+.procedure-workup,
+.procedure-hazards {
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.procedure-workup > div:last-child {
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  line-height: 1.4;
+}
+.procedure-hazards ul {
+  margin: 0;
+  padding-left: 16px;
+}
+.procedure-hazards li {
+  margin-bottom: 4px;
+}
+
 .chat-section {
   padding: 16px 20px;
   min-height: 0;

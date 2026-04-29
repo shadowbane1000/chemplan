@@ -19,12 +19,37 @@ type PlanStats = {
   search_time: number
 }
 
+type ReactionMetadata = {
+  template_hash?: string
+  classification?: string
+  library_occurence?: number
+  policy_probability?: number
+  policy_name?: string
+}
+
+type TreeMolNode = {
+  type: 'mol'
+  smiles: string
+  in_stock: boolean
+  children?: TreeNode[]
+}
+
+type TreeReactionNode = {
+  type: 'reaction'
+  smiles: string
+  metadata?: ReactionMetadata
+  children?: TreeNode[]
+}
+
+type TreeNode = TreeMolNode | TreeReactionNode
+
 type PlanResponse = {
   smiles: string
   stats: PlanStats
   top_route: {
     score: { 'state score': number }
     image_png_b64: string
+    tree: TreeNode
   }
 }
 
@@ -33,11 +58,61 @@ type ChatMessage = {
   content: string
 }
 
+type Reagent = {
+  name: string
+  smiles: string | null
+  role: string
+  equiv: number | null
+  amount_ml_per_mmol: number | null
+}
+
+type Operation = {
+  step: number
+  action: string
+  description: string
+  reagents: Reagent[]
+  temperature_c: number | null
+  duration_min: number | null
+  atmosphere: string | null
+  notes: string | null
+}
+
+type Grounding = {
+  source: 'llm_only' | 'ord' | 'patent_extracted' | 'lab_tested'
+  confidence: 'low' | 'medium' | 'high'
+  cost_usd: number
+  details: string
+}
+
+type StepProcedure = {
+  reaction_smiles: string
+  disconnection_summary: string
+  operations: Operation[]
+  workup: string | null
+  hazards: string[]
+  grounding: Grounding
+}
+
+type ProcState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'ok'; data: StepProcedure }
+  | { status: 'error'; message: string }
+
+function extractReactions(node: TreeNode): TreeReactionNode[] {
+  const out: TreeReactionNode[] = []
+  if (node.type === 'reaction') out.push(node)
+  for (const c of node.children ?? []) out.push(...extractReactions(c))
+  return out
+}
+
 function App() {
   const ketcherRef = useRef<Ketcher | null>(null)
   const [plan, setPlan] = useState<PlanResponse | null>(null)
   const [planError, setPlanError] = useState<string | null>(null)
   const [planLoading, setPlanLoading] = useState(false)
+
+  const [procedures, setProcedures] = useState<Record<number, ProcState>>({})
 
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [chatInput, setChatInput] = useState('')
@@ -53,6 +128,7 @@ function App() {
   async function handlePlan() {
     setPlanError(null)
     setPlan(null)
+    setProcedures({})
 
     const ketcher = ketcherRef.current
     if (!ketcher) {
@@ -90,6 +166,28 @@ function App() {
       setPlanError(String(e))
     } finally {
       setPlanLoading(false)
+    }
+  }
+
+  async function handleExpandStep(idx: number, reaction: TreeReactionNode) {
+    setProcedures((prev) => ({ ...prev, [idx]: { status: 'loading' } }))
+    try {
+      const res = await fetch(`${BACKEND}/expand_step`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reaction_smiles: reaction.smiles,
+          metadata: reaction.metadata ?? null,
+        }),
+      })
+      if (!res.ok) {
+        const detail = await res.text()
+        throw new Error(`HTTP ${res.status}: ${detail}`)
+      }
+      const data = (await res.json()) as StepProcedure
+      setProcedures((prev) => ({ ...prev, [idx]: { status: 'ok', data } }))
+    } catch (e) {
+      setProcedures((prev) => ({ ...prev, [idx]: { status: 'error', message: String(e) } }))
     }
   }
 
@@ -165,6 +263,9 @@ function App() {
     }
   }
 
+  // Reactions in synthesis order: deepest in the tree (uses commercial precursors) first.
+  const reactionsInOrder = plan ? extractReactions(plan.top_route.tree).reverse() : []
+
   return (
     <div className="app">
       <main className="canvas">
@@ -215,6 +316,22 @@ function App() {
               )}
               {plan.stats.precursors_not_in_stock && (
                 <Block label="Missing precursors" body={plan.stats.precursors_not_in_stock} />
+              )}
+
+              {reactionsInOrder.length > 0 && (
+                <div className="steps">
+                  <div className="block-label">Procedure</div>
+                  {reactionsInOrder.map((rxn, i) => (
+                    <StepCard
+                      key={i}
+                      index={i}
+                      total={reactionsInOrder.length}
+                      reaction={rxn}
+                      state={procedures[i] ?? { status: 'idle' }}
+                      onExpand={() => handleExpandStep(i, rxn)}
+                    />
+                  ))}
+                </div>
               )}
             </div>
           )}
@@ -287,6 +404,136 @@ function Message({ role, content, streaming }: { role: 'user' | 'assistant'; con
     <div className={`message message-${role}${streaming ? ' streaming' : ''}`}>
       <div className="message-role">{role}</div>
       <div className="message-content">{content}</div>
+    </div>
+  )
+}
+
+function StepCard({
+  index,
+  total,
+  reaction,
+  state,
+  onExpand,
+}: {
+  index: number
+  total: number
+  reaction: TreeReactionNode
+  state: ProcState
+  onExpand: () => void
+}) {
+  // AiZynthFinder serializes as `product >> precursors`; show that direction.
+  const [productPart, precursorPart] = reaction.smiles.split('>>')
+  const occ = reaction.metadata?.library_occurence
+  const prob = reaction.metadata?.policy_probability
+
+  return (
+    <div className="step-card">
+      <div className="step-head">
+        <div className="step-title">
+          Step {index + 1} of {total}
+        </div>
+        <div className="step-meta">
+          {occ !== undefined && <span>{occ} USPTO precedents</span>}
+          {prob !== undefined && <span>p={prob.toFixed(2)}</span>}
+        </div>
+      </div>
+      <div className="step-rxn">
+        <div className="step-rxn-side">
+          <div className="step-rxn-label">precursors (combine)</div>
+          <code>{precursorPart}</code>
+        </div>
+        <div className="step-rxn-arrow">→</div>
+        <div className="step-rxn-side">
+          <div className="step-rxn-label">product</div>
+          <code>{productPart}</code>
+        </div>
+      </div>
+
+      {state.status === 'idle' && (
+        <button className="secondary" onClick={onExpand}>
+          Show procedure
+        </button>
+      )}
+      {state.status === 'loading' && <div className="muted small">Generating procedure…</div>}
+      {state.status === 'error' && <div className="error">{state.message}</div>}
+      {state.status === 'ok' && <ProcedureView procedure={state.data} />}
+    </div>
+  )
+}
+
+function ProcedureView({ procedure }: { procedure: StepProcedure }) {
+  return (
+    <div className="procedure">
+      <GroundingBadge grounding={procedure.grounding} />
+      <div className="procedure-summary">{procedure.disconnection_summary}</div>
+
+      <ol className="ops">
+        {procedure.operations.map((op) => (
+          <li key={op.step} className="op">
+            <div className="op-action">{op.action}</div>
+            <div className="op-desc">{op.description}</div>
+            {(op.temperature_c !== null || op.duration_min !== null || op.atmosphere) && (
+              <div className="op-cond">
+                {op.temperature_c !== null && <span>{op.temperature_c}°C</span>}
+                {op.duration_min !== null && <span>{op.duration_min} min</span>}
+                {op.atmosphere && <span>{op.atmosphere}</span>}
+              </div>
+            )}
+            {op.reagents.length > 0 && (
+              <ul className="op-reagents">
+                {op.reagents.map((r, i) => (
+                  <li key={i}>
+                    <span className="reagent-role">{r.role}</span>{' '}
+                    <span className="reagent-name">{r.name}</span>
+                    {r.equiv !== null && <span className="muted"> · {r.equiv} eq</span>}
+                    {r.amount_ml_per_mmol !== null && (
+                      <span className="muted"> · {r.amount_ml_per_mmol} mL/mmol</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </li>
+        ))}
+      </ol>
+
+      {procedure.workup && (
+        <div className="procedure-workup">
+          <div className="block-label">Workup</div>
+          <div>{procedure.workup}</div>
+        </div>
+      )}
+
+      {procedure.hazards.length > 0 && (
+        <div className="procedure-hazards">
+          <div className="block-label">Hazards</div>
+          <ul>
+            {procedure.hazards.map((h, i) => (
+              <li key={i}>{h}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function GroundingBadge({ grounding }: { grounding: Grounding }) {
+  const sourceLabel = {
+    llm_only: 'LLM-generated',
+    ord: 'ORD precedent',
+    patent_extracted: 'USPTO patent',
+    lab_tested: 'Lab-validated',
+  }[grounding.source]
+
+  return (
+    <div className={`grounding grounding-${grounding.source} grounding-${grounding.confidence}`}>
+      <div className="grounding-head">
+        <span className="grounding-source">{sourceLabel}</span>
+        <span className="grounding-conf">confidence: {grounding.confidence}</span>
+        <span className="grounding-cost">${grounding.cost_usd.toFixed(2)}</span>
+      </div>
+      <div className="grounding-details">{grounding.details}</div>
     </div>
   )
 }
