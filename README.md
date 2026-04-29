@@ -2,7 +2,7 @@
 
 A grounded retrosynthesis planner. Draw a target, get a real route from AiZynthFinder, and ask a chat partner that actually knows the route why it picked what it picked.
 
-> **Live demo:** _coming soon_ · **Walkthrough (~6 min):** _coming soon_
+> **Live demo:** _coming soon_ · **Walkthrough (~6 min):** _coming soon_ · **Source:** [GitHub](https://github.com/shadowbane1000/chemplan)
 
 ---
 

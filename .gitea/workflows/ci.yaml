@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: ["*"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
+
+      - name: Lint frontend
+        run: cd frontend && npm run lint
+
+      - name: Build frontend
+        run: cd frontend && npm run build
+
+  deploy-app:
+    runs-on: ubuntu-latest
+    needs: lint-build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker images
+        run: |
+          docker build -t chemplan-frontend:latest -f frontend/Dockerfile .
+          docker build -t chemplan-backend:latest -f backend/Dockerfile .
+
+      - name: Save Docker images
+        run: docker save chemplan-frontend:latest chemplan-backend:latest | gzip > /tmp/chemplan-images.tar.gz
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.LIGHTSAIL_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H tyler.colberts.us >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Upload to server
+        run: |
+          ssh -i ~/.ssh/deploy_key ec2-user@tyler.colberts.us 'mkdir -p ~/chemplan; cd ~/chemplan && docker compose stop 2>/dev/null || true'
+          scp -i ~/.ssh/deploy_key /tmp/chemplan-images.tar.gz ec2-user@tyler.colberts.us:/tmp/chemplan-images.tar.gz
+          scp -i ~/.ssh/deploy_key docker-compose.yml ec2-user@tyler.colberts.us:~/chemplan/docker-compose.yml
+
+      - name: Deploy to server
+        run: |
+          ssh -i ~/.ssh/deploy_key ec2-user@tyler.colberts.us << 'DEPLOY'
+            set -e
+            cd ~/chemplan
+
+            # Load new images
+            gunzip -c /tmp/chemplan-images.tar.gz | docker load
+            rm /tmp/chemplan-images.tar.gz
+
+            # Start services (backend will auto-download AiZynthFinder data
+            # on first run if /opt/chemplan/data is empty — this can take
+            # several minutes, so the health-check window is generous).
+            docker compose up -d --force-recreate
+
+            echo "Waiting for health check..."
+            for i in $(seq 1 150); do
+              if curl -sf http://localhost:8084/health > /dev/null 2>&1; then
+                echo "Deploy successful — health check passed"
+                exit 0
+              fi
+              sleep 2
+            done
+            echo "WARNING: Health check did not pass within 5 minutes"
+            docker compose logs --tail 40
+            exit 1
+          DEPLOY
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

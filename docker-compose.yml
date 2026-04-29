@@ -1,0 +1,30 @@
+services:
+  frontend:
+    image: chemplan-frontend:latest
+    ports:
+      - "127.0.0.1:8084:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  backend:
+    image: chemplan-backend:latest
+    expose:
+      - "8123"
+    env_file: .env
+    # AiZynthFinder model data (~750MB) lives on the host so it survives
+    # image rebuilds and the entrypoint only downloads it once.
+    volumes:
+      - /opt/chemplan/data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8123/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 300s
