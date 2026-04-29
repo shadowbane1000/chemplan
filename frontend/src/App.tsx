@@ -230,7 +230,7 @@ function App() {
 
     setChatError(null)
 
-    let canvasSmiles: string | null = null
+    let canvasSmiles: string | null
     try {
       canvasSmiles = (await ketcherRef.current?.getSmiles()) ?? null
     } catch {
