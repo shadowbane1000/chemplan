@@ -8,7 +8,7 @@ on:
 
 jobs:
   lint-build:
-    runs-on: ubuntu-latest
+    runs-on: small
     steps:
       - uses: actions/checkout@v4
 
@@ -27,7 +27,7 @@ jobs:
         run: cd frontend && npm run build
 
   deploy-app:
-    runs-on: ubuntu-latest
+    runs-on: large
     needs: lint-build
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
