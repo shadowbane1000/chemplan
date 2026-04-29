@@ -29,7 +29,12 @@ jobs:
   deploy-app:
     runs-on: large
     needs: lint-build
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # CD disabled: the shared Lightsail box can't fit AiZynthFinder's
+    # working set without OOM-killing the backend mid-/plan request.
+    # Re-enable by restoring the original `if:` condition below once the
+    # host has more headroom (or memory pressure is otherwise resolved).
+    # if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: false
     steps:
       - uses: actions/checkout@v4
 
