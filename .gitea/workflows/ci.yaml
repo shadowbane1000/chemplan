@@ -27,11 +27,19 @@ jobs:
         run: cd frontend && npm run build
 
   deploy-app:
-    runs-on: small
+    runs-on: large
     needs: lint-build
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
+
+      - name: Build Docker images
+        run: |
+          docker build -t chemplan-frontend:latest -f frontend/Dockerfile .
+          docker build -t chemplan-backend:latest -f backend/Dockerfile .
+
+      - name: Save Docker images
+        run: docker save chemplan-frontend:latest chemplan-backend:latest | gzip > /tmp/chemplan-images.tar.gz
 
       - name: Setup SSH key
         run: |
@@ -40,42 +48,25 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H tyler.colberts.us >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Ship source to server
+      - name: Upload to server
         run: |
-          # Pack just the build inputs — no node_modules, no .git, no dist.
-          tar --exclude='./.git' \
-              --exclude='./frontend/node_modules' \
-              --exclude='./frontend/dist' \
-              --exclude='./backend/data' \
-              --exclude='./backend/__pycache__' \
-              --exclude='./backend/*.egg-info' \
-              -czf /tmp/chemplan-src.tar.gz .
-          ssh -i ~/.ssh/deploy_key ec2-user@tyler.colberts.us 'mkdir -p ~/chemplan/src'
-          scp -i ~/.ssh/deploy_key /tmp/chemplan-src.tar.gz ec2-user@tyler.colberts.us:/tmp/chemplan-src.tar.gz
+          ssh -i ~/.ssh/deploy_key ec2-user@tyler.colberts.us 'mkdir -p ~/chemplan; cd ~/chemplan && docker compose stop 2>/dev/null || true'
+          scp -i ~/.ssh/deploy_key /tmp/chemplan-images.tar.gz ec2-user@tyler.colberts.us:/tmp/chemplan-images.tar.gz
+          scp -i ~/.ssh/deploy_key docker-compose.yml ec2-user@tyler.colberts.us:~/chemplan/docker-compose.yml
 
-      - name: Build and deploy on server
+      - name: Deploy to server
         run: |
           ssh -i ~/.ssh/deploy_key ec2-user@tyler.colberts.us << 'DEPLOY'
             set -e
             cd ~/chemplan
 
-            # Refresh source tree from the runner-uploaded tarball.
-            rm -rf src
-            mkdir src
-            tar -xzf /tmp/chemplan-src.tar.gz -C src
-            rm /tmp/chemplan-src.tar.gz
+            # Load new images
+            gunzip -c /tmp/chemplan-images.tar.gz | docker load
+            rm /tmp/chemplan-images.tar.gz
 
-            # Compose file lives outside src/ so it's stable across rebuilds.
-            cp src/docker-compose.yml ./docker-compose.yml
-
-            # Build images on the host (avoids runner-docker dependency).
-            cd src
-            docker build -t chemplan-frontend:latest -f frontend/Dockerfile .
-            docker build -t chemplan-backend:latest -f backend/Dockerfile .
-            cd ..
-
-            # Bring up the stack (backend will auto-download AiZynthFinder
-            # data on first run if /opt/chemplan/data is empty).
+            # Start services (backend will auto-download AiZynthFinder data
+            # on first run if /opt/chemplan/data is empty — this can take
+            # several minutes, so the health-check window is generous).
             docker compose up -d --force-recreate
 
             echo "Waiting for health check..."
