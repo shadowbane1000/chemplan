@@ -8,4 +8,9 @@ dependencies = [
     "uvicorn[standard]>=0.32",
     "pydantic>=2.9",
     "aizynthfinder>=4.3",
+    "anthropic>=0.92",
+    "python-dotenv>=1.0",
 ]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
