@@ -37,19 +37,26 @@ def _get_finder() -> AiZynthFinder:
 def _attach_reaction_images(node: dict, depth: int = 0) -> None:
     """Walk the reaction tree and attach a base64 PNG to each reaction node.
 
-    AiZynthFinder reaction SMILES are atom-mapped retrosynthesis SMILES
-    (`product >> precursors`); RDKit can draw them directly.
+    AiZynthFinder reaction nodes carry two SMILES representations:
+      - `smiles`: TEMPLATE-mapped reaction (only atoms in the disconnection
+         pattern keep their structure; the rest are stubs).
+      - `metadata.mapped_reaction_smiles`: full atom-mapped reaction with
+         every atom of the actual substrate and product.
+    Always prefer the mapped form for rendering — drawing the template
+    shows fragments instead of the real molecules.
     """
-    if node.get("type") == "reaction" and "smiles" in node:
-        try:
-            rxn = AllChem.ReactionFromSmarts(node["smiles"], useSmiles=True)
-            img = Draw.ReactionToImage(rxn, subImgSize=(220, 220))
-            buf = BytesIO()
-            img.save(buf, format="PNG")
-            node["image_png_b64"] = base64.b64encode(buf.getvalue()).decode("ascii")
-        except Exception:
-            # Don't break the response if a single reaction fails to render.
-            pass
+    if node.get("type") == "reaction":
+        rxn_smiles = (node.get("metadata") or {}).get("mapped_reaction_smiles") or node.get("smiles")
+        if rxn_smiles:
+            try:
+                rxn = AllChem.ReactionFromSmarts(rxn_smiles, useSmiles=True)
+                img = Draw.ReactionToImage(rxn, subImgSize=(220, 220))
+                buf = BytesIO()
+                img.save(buf, format="PNG")
+                node["image_png_b64"] = base64.b64encode(buf.getvalue()).decode("ascii")
+            except Exception:
+                # Don't break the response if a single reaction fails to render.
+                pass
     for child in node.get("children", []) or []:
         _attach_reaction_images(child, depth + 1)
 

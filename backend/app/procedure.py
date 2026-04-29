@@ -122,10 +122,14 @@ Be concise in `description` and `notes`. Don't pad."""
 
 
 def _user_prompt(reaction_smiles: str, metadata: dict[str, Any] | None) -> str:
+    # Prefer the fully atom-mapped reaction (with full substrate structures);
+    # fall back to the template-mapped form only if it's missing.
+    full_rxn = (metadata or {}).get("mapped_reaction_smiles") or reaction_smiles
+
     parts = [
         "Generate a StepProcedure for the following reaction.",
         "",
-        f"Reaction SMILES (atom-mapped): {reaction_smiles}",
+        f"Reaction SMILES (full atom-mapped, product >> precursors): {full_rxn}",
     ]
     if metadata:
         if metadata.get("classification") and metadata["classification"] != "0.0 Unrecognized":
