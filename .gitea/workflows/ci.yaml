@@ -33,6 +33,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Docker CLI
+        run: apt-get update && apt-get install -y docker.io
+
       - name: Build Docker images
         run: |
           docker build -t chemplan-frontend:latest -f frontend/Dockerfile .
