@@ -34,6 +34,17 @@ def _get_finder() -> AiZynthFinder:
     return _finder
 
 
+def _flip_to_forward(rxn_smiles: str) -> str:
+    """AiZynthFinder writes reactions in retrosynthesis direction
+    (`product >> precursors`). For procedure-card rendering we want the
+    forward direction the chemist actually runs (`precursors >> product`).
+    """
+    if ">>" not in rxn_smiles:
+        return rxn_smiles
+    left, right = rxn_smiles.split(">>", 1)
+    return f"{right}>>{left}"
+
+
 def _attach_reaction_images(node: dict, depth: int = 0) -> None:
     """Walk the reaction tree and attach a base64 PNG to each reaction node.
 
@@ -43,13 +54,15 @@ def _attach_reaction_images(node: dict, depth: int = 0) -> None:
       - `metadata.mapped_reaction_smiles`: full atom-mapped reaction with
          every atom of the actual substrate and product.
     Always prefer the mapped form for rendering — drawing the template
-    shows fragments instead of the real molecules.
+    shows fragments instead of the real molecules. Flip the direction
+    before rendering so the image reads as a forward synthesis step.
     """
     if node.get("type") == "reaction":
         rxn_smiles = (node.get("metadata") or {}).get("mapped_reaction_smiles") or node.get("smiles")
         if rxn_smiles:
             try:
-                rxn = AllChem.ReactionFromSmarts(rxn_smiles, useSmiles=True)
+                forward = _flip_to_forward(rxn_smiles)
+                rxn = AllChem.ReactionFromSmarts(forward, useSmiles=True)
                 img = Draw.ReactionToImage(rxn, subImgSize=(220, 220))
                 buf = BytesIO()
                 img.save(buf, format="PNG")
