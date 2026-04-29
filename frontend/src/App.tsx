@@ -9,6 +9,12 @@ const structServiceProvider = new StandaloneStructServiceProvider()
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:8123'
 
+const DEMO_MOLECULES: { name: string; smiles: string }[] = [
+  { name: 'Paracetamol', smiles: 'CC(=O)Nc1ccc(O)cc1' },
+  { name: 'Aspirin', smiles: 'CC(=O)Oc1ccccc1C(=O)O' },
+  { name: 'Ibuprofen', smiles: 'CC(C)Cc1ccc(C(C)C(=O)O)cc1' },
+]
+
 type PlanStats = {
   is_solved: boolean
   number_of_steps: number
@@ -38,6 +44,7 @@ type TreeReactionNode = {
   type: 'reaction'
   smiles: string
   metadata?: ReactionMetadata
+  image_png_b64?: string
   children?: TreeNode[]
 }
 
@@ -99,6 +106,8 @@ type ProcState =
   | { status: 'ok'; data: StepProcedure }
   | { status: 'error'; message: string }
 
+type ToggleState = { steps: boolean; workup: boolean; hazards: boolean }
+
 function extractReactions(node: TreeNode): TreeReactionNode[] {
   const out: TreeReactionNode[] = []
   if (node.type === 'reaction') out.push(node)
@@ -113,6 +122,7 @@ function App() {
   const [planLoading, setPlanLoading] = useState(false)
 
   const [procedures, setProcedures] = useState<Record<number, ProcState>>({})
+  const [toggles, setToggles] = useState<Record<number, ToggleState>>({})
 
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [chatInput, setChatInput] = useState('')
@@ -125,10 +135,21 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamingText])
 
+  async function handleLoadDemo(smiles: string) {
+    const k = ketcherRef.current
+    if (!k) return
+    await k.setMolecule(smiles)
+    setPlan(null)
+    setPlanError(null)
+    setProcedures({})
+    setToggles({})
+  }
+
   async function handlePlan() {
     setPlanError(null)
     setPlan(null)
     setProcedures({})
+    setToggles({})
 
     const ketcher = ketcherRef.current
     if (!ketcher) {
@@ -145,7 +166,7 @@ function App() {
     }
 
     if (!smiles || !smiles.trim()) {
-      setPlanError('Draw a target molecule first.')
+      setPlanError('Draw or load a target molecule first.')
       return
     }
 
@@ -186,9 +207,20 @@ function App() {
       }
       const data = (await res.json()) as StepProcedure
       setProcedures((prev) => ({ ...prev, [idx]: { status: 'ok', data } }))
+      setToggles((prev) => ({
+        ...prev,
+        [idx]: prev[idx] ?? { steps: false, workup: false, hazards: false },
+      }))
     } catch (e) {
       setProcedures((prev) => ({ ...prev, [idx]: { status: 'error', message: String(e) } }))
     }
+  }
+
+  function toggleSection(idx: number, section: keyof ToggleState) {
+    setToggles((prev) => {
+      const cur = prev[idx] ?? { steps: false, workup: false, hazards: false }
+      return { ...prev, [idx]: { ...cur, [section]: !cur[section] } }
+    })
   }
 
   async function handleChatSubmit(e: React.FormEvent) {
@@ -268,33 +300,24 @@ function App() {
 
   return (
     <div className="app">
-      <main className="canvas">
-        <Editor
-          staticResourcesUrl=""
-          structServiceProvider={structServiceProvider}
-          errorHandler={(message: string) => console.error('ketcher error:', message)}
-          buttons={{
-            miew: { hidden: true },
-          }}
-          onInit={(k: Ketcher) => {
-            ketcherRef.current = k
-            ;(window as unknown as { ketcher: Ketcher }).ketcher = k
-          }}
-        />
-      </main>
-      <aside className="sidepanel">
-        <section className="plan-section">
-          <header>
-            <h2>plan</h2>
-            <button className="primary" onClick={handlePlan} disabled={planLoading}>
-              {planLoading ? 'Planning…' : 'Plan synthesis'}
-            </button>
-          </header>
+      <section className="plan-area">
+        <header className="plan-header">
+          <h2>plan</h2>
+        </header>
 
-          {planError && <div className="error">{planError}</div>}
+        {planError && <div className="error">{planError}</div>}
 
-          {plan && (
-            <div className="result">
+        {!plan && !planError && !planLoading && (
+          <div className="muted small empty-hint">
+            Load a demo molecule (or draw one) and click <strong>Plan synthesis</strong> below.
+          </div>
+        )}
+
+        {planLoading && <div className="muted small empty-hint">Planning…</div>}
+
+        {plan && (
+          <div className="plan-result">
+            <div className="plan-summary">
               <div className="stats">
                 <Stat label="Solved" value={plan.stats.is_solved ? 'yes' : 'no'} />
                 <Stat label="Steps" value={String(plan.stats.number_of_steps)} />
@@ -311,36 +334,70 @@ function App() {
                 alt="Retrosynthesis route"
               />
 
-              {plan.stats.precursors_in_stock && (
-                <Block label="Building blocks (in stock)" body={plan.stats.precursors_in_stock} />
-              )}
-              {plan.stats.precursors_not_in_stock && (
-                <Block label="Missing precursors" body={plan.stats.precursors_not_in_stock} />
-              )}
-
-              {reactionsInOrder.length > 0 && (
-                <div className="steps">
-                  <div className="block-label">Procedure</div>
-                  {reactionsInOrder.map((rxn, i) => (
-                    <StepCard
-                      key={i}
-                      index={i}
-                      total={reactionsInOrder.length}
-                      reaction={rxn}
-                      state={procedures[i] ?? { status: 'idle' }}
-                      onExpand={() => handleExpandStep(i, rxn)}
-                    />
-                  ))}
+              {(plan.stats.precursors_in_stock || plan.stats.precursors_not_in_stock) && (
+                <div className="building-blocks">
+                  {plan.stats.precursors_in_stock && (
+                    <Block label="In stock" body={plan.stats.precursors_in_stock} />
+                  )}
+                  {plan.stats.precursors_not_in_stock && (
+                    <Block label="Missing" body={plan.stats.precursors_not_in_stock} />
+                  )}
                 </div>
               )}
             </div>
-          )}
-        </section>
 
-        <section className="chat-section">
-          <header>
-            <h2>chat</h2>
-          </header>
+            {reactionsInOrder.length > 0 && (
+              <div className="steps">
+                {reactionsInOrder.map((rxn, i) => (
+                  <StepCard
+                    key={i}
+                    index={i}
+                    total={reactionsInOrder.length}
+                    reaction={rxn}
+                    state={procedures[i] ?? { status: 'idle' }}
+                    toggles={toggles[i] ?? { steps: false, workup: false, hazards: false }}
+                    onExpand={() => handleExpandStep(i, rxn)}
+                    onToggle={(section) => toggleSection(i, section)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      <section className="bottom-row">
+        <div className="canvas-pane">
+          <Editor
+            staticResourcesUrl=""
+            structServiceProvider={structServiceProvider}
+            errorHandler={(message: string) => console.error('ketcher error:', message)}
+            buttons={{
+              miew: { hidden: true },
+            }}
+            onInit={(k: Ketcher) => {
+              ketcherRef.current = k
+              ;(window as unknown as { ketcher: Ketcher }).ketcher = k
+            }}
+          />
+        </div>
+
+        <div className="chat-pane">
+          <div className="chat-controls">
+            {DEMO_MOLECULES.map((m) => (
+              <button
+                key={m.name}
+                className="secondary"
+                onClick={() => handleLoadDemo(m.smiles)}
+                type="button"
+              >
+                {m.name}
+              </button>
+            ))}
+            <button className="primary" onClick={handlePlan} disabled={planLoading} type="button">
+              {planLoading ? 'Planning…' : 'Plan synthesis'}
+            </button>
+          </div>
 
           <div className="messages">
             {messages.length === 0 && !streamingText && (
@@ -375,8 +432,8 @@ function App() {
               Send
             </button>
           </form>
-        </section>
-      </aside>
+        </div>
+      </section>
     </div>
   )
 }
@@ -413,100 +470,125 @@ function StepCard({
   total,
   reaction,
   state,
+  toggles,
   onExpand,
+  onToggle,
 }: {
   index: number
   total: number
   reaction: TreeReactionNode
   state: ProcState
+  toggles: ToggleState
   onExpand: () => void
+  onToggle: (section: keyof ToggleState) => void
 }) {
-  // AiZynthFinder serializes as `product >> precursors`; show that direction.
-  const [productPart, precursorPart] = reaction.smiles.split('>>')
   const occ = reaction.metadata?.library_occurence
   const prob = reaction.metadata?.policy_probability
+  const procedure = state.status === 'ok' ? state.data : null
 
   return (
     <div className="step-card">
-      <div className="step-head">
-        <div className="step-title">
-          Step {index + 1} of {total}
-        </div>
-        <div className="step-meta">
-          {occ !== undefined && <span>{occ} USPTO precedents</span>}
-          {prob !== undefined && <span>p={prob.toFixed(2)}</span>}
-        </div>
-      </div>
-      <div className="step-rxn">
-        <div className="step-rxn-side">
-          <div className="step-rxn-label">precursors (combine)</div>
-          <code>{precursorPart}</code>
-        </div>
-        <div className="step-rxn-arrow">→</div>
-        <div className="step-rxn-side">
-          <div className="step-rxn-label">product</div>
-          <code>{productPart}</code>
-        </div>
-      </div>
+      <div className="step-card-row">
+        {reaction.image_png_b64 && (
+          <div className="step-rxn-image">
+            <img
+              src={`data:image/png;base64,${reaction.image_png_b64}`}
+              alt={`Step ${index + 1} reaction`}
+            />
+          </div>
+        )}
 
-      {state.status === 'idle' && (
-        <button className="secondary" onClick={onExpand}>
-          Show procedure
-        </button>
-      )}
-      {state.status === 'loading' && <div className="muted small">Generating procedure…</div>}
-      {state.status === 'error' && <div className="error">{state.message}</div>}
-      {state.status === 'ok' && <ProcedureView procedure={state.data} />}
-    </div>
-  )
-}
+        <div className="step-card-body">
+          <div className="step-head">
+            <div className="step-title">
+              Step {index + 1} of {total}
+              {procedure && <span className="step-summary">: {procedure.disconnection_summary}</span>}
+            </div>
+            <div className="step-meta">
+              {occ !== undefined && <span>{occ} USPTO precedents</span>}
+              {prob !== undefined && <span>p={prob.toFixed(2)}</span>}
+            </div>
+          </div>
 
-function ProcedureView({ procedure }: { procedure: StepProcedure }) {
-  return (
-    <div className="procedure">
-      <GroundingBadge grounding={procedure.grounding} />
-      <div className="procedure-summary">{procedure.disconnection_summary}</div>
+          {state.status === 'idle' && (
+            <button className="secondary" onClick={onExpand}>
+              Show procedure
+            </button>
+          )}
+          {state.status === 'loading' && <div className="muted small">Generating procedure…</div>}
+          {state.status === 'error' && <div className="error">{state.message}</div>}
 
-      <ol className="ops">
-        {procedure.operations.map((op) => (
-          <li key={op.step} className="op">
-            <div className="op-action">{op.action}</div>
-            <div className="op-desc">{op.description}</div>
-            {(op.temperature_c !== null || op.duration_min !== null || op.atmosphere) && (
-              <div className="op-cond">
-                {op.temperature_c !== null && <span>{op.temperature_c}°C</span>}
-                {op.duration_min !== null && <span>{op.duration_min} min</span>}
-                {op.atmosphere && <span>{op.atmosphere}</span>}
+          {procedure && (
+            <>
+              <GroundingBadge grounding={procedure.grounding} />
+              <div className="step-toggles">
+                <ToggleButton
+                  label="Steps"
+                  count={procedure.operations.length}
+                  open={toggles.steps}
+                  onClick={() => onToggle('steps')}
+                />
+                {procedure.workup && (
+                  <ToggleButton
+                    label="Workup"
+                    open={toggles.workup}
+                    onClick={() => onToggle('workup')}
+                  />
+                )}
+                {procedure.hazards.length > 0 && (
+                  <ToggleButton
+                    label="Hazards"
+                    count={procedure.hazards.length}
+                    open={toggles.hazards}
+                    onClick={() => onToggle('hazards')}
+                  />
+                )}
               </div>
-            )}
-            {op.reagents.length > 0 && (
-              <ul className="op-reagents">
-                {op.reagents.map((r, i) => (
-                  <li key={i}>
-                    <span className="reagent-role">{r.role}</span>{' '}
-                    <span className="reagent-name">{r.name}</span>
-                    {r.equiv !== null && <span className="muted"> · {r.equiv} eq</span>}
-                    {r.amount_ml_per_mmol !== null && (
-                      <span className="muted"> · {r.amount_ml_per_mmol} mL/mmol</span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </li>
-        ))}
-      </ol>
+            </>
+          )}
+        </div>
+      </div>
 
-      {procedure.workup && (
-        <div className="procedure-workup">
-          <div className="block-label">Workup</div>
-          <div>{procedure.workup}</div>
+      {procedure && toggles.steps && (
+        <div className="step-section">
+          <ol className="ops">
+            {procedure.operations.map((op) => (
+              <li key={op.step} className="op">
+                <div className="op-action">{op.action}</div>
+                <div className="op-desc">{op.description}</div>
+                {(op.temperature_c !== null || op.duration_min !== null || op.atmosphere) && (
+                  <div className="op-cond">
+                    {op.temperature_c !== null && <span>{op.temperature_c}°C</span>}
+                    {op.duration_min !== null && <span>{op.duration_min} min</span>}
+                    {op.atmosphere && <span>{op.atmosphere}</span>}
+                  </div>
+                )}
+                {op.reagents.length > 0 && (
+                  <ul className="op-reagents">
+                    {op.reagents.map((r, i) => (
+                      <li key={i}>
+                        <span className="reagent-role">{r.role}</span>{' '}
+                        <span className="reagent-name">{r.name}</span>
+                        {r.equiv !== null && <span className="muted"> · {r.equiv} eq</span>}
+                        {r.amount_ml_per_mmol !== null && (
+                          <span className="muted"> · {r.amount_ml_per_mmol} mL/mmol</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            ))}
+          </ol>
         </div>
       )}
 
-      {procedure.hazards.length > 0 && (
-        <div className="procedure-hazards">
-          <div className="block-label">Hazards</div>
+      {procedure && toggles.workup && procedure.workup && (
+        <div className="step-section workup">{procedure.workup}</div>
+      )}
+
+      {procedure && toggles.hazards && procedure.hazards.length > 0 && (
+        <div className="step-section hazards">
           <ul>
             {procedure.hazards.map((h, i) => (
               <li key={i}>{h}</li>
@@ -515,6 +597,31 @@ function ProcedureView({ procedure }: { procedure: StepProcedure }) {
         </div>
       )}
     </div>
+  )
+}
+
+function ToggleButton({
+  label,
+  count,
+  open,
+  onClick,
+}: {
+  label: string
+  count?: number
+  open: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      className={`toggle ${open ? 'toggle-open' : ''}`}
+      onClick={onClick}
+      aria-expanded={open}
+    >
+      <span className="toggle-caret">{open ? '▼' : '▶'}</span>
+      <span>{label}</span>
+      {count !== undefined && <span className="toggle-count">{count}</span>}
+    </button>
   )
 }
 

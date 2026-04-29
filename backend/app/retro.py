@@ -13,6 +13,7 @@ from threading import Lock
 from typing import Any
 
 from aizynthfinder.aizynthfinder import AiZynthFinder
+from rdkit.Chem import AllChem, Draw
 
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "data" / "config.yml"
 
@@ -31,6 +32,26 @@ def _get_finder() -> AiZynthFinder:
                 f.filter_policy.select("uspto")
                 _finder = f
     return _finder
+
+
+def _attach_reaction_images(node: dict, depth: int = 0) -> None:
+    """Walk the reaction tree and attach a base64 PNG to each reaction node.
+
+    AiZynthFinder reaction SMILES are atom-mapped retrosynthesis SMILES
+    (`product >> precursors`); RDKit can draw them directly.
+    """
+    if node.get("type") == "reaction" and "smiles" in node:
+        try:
+            rxn = AllChem.ReactionFromSmarts(node["smiles"], useSmiles=True)
+            img = Draw.ReactionToImage(rxn, subImgSize=(220, 220))
+            buf = BytesIO()
+            img.save(buf, format="PNG")
+            node["image_png_b64"] = base64.b64encode(buf.getvalue()).decode("ascii")
+        except Exception:
+            # Don't break the response if a single reaction fails to render.
+            pass
+    for child in node.get("children", []) or []:
+        _attach_reaction_images(child, depth + 1)
 
 
 def plan(smiles: str) -> dict[str, Any]:
@@ -55,13 +76,16 @@ def plan(smiles: str) -> dict[str, Any]:
     tree.to_image().save(buf, format="PNG")
     image_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
 
+    tree_dict = tree.to_dict()
+    _attach_reaction_images(tree_dict)
+
     return {
         "smiles": smiles,
         "stats": finder.extract_statistics(),
         "top_route": {
             "score": top.get("score"),
             "metadata": top.get("route_metadata"),
-            "tree": tree.to_dict(),
+            "tree": tree_dict,
             "image_png_b64": image_b64,
         },
     }
